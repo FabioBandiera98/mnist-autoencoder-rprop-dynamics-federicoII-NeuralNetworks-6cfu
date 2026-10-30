@@ -1,0 +1,15 @@
+# Dataset MNIST e split: si rigenerano con python data.py
+data/
+
+# Output generati
+samples.png
+fix_torch.bat
+fix_torch.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+
+# IDE
+.idea/

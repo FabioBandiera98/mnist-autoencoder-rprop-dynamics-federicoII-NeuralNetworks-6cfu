@@ -23,7 +23,11 @@ Suddivisione finale del dataset:
 - Test: 5.000 immagini
 - Totale: 30.000 immagini
 
-Tutti gli insiemi sono disgiunti e ottenuti con una split stratificata per preservare la distribuzione delle 10 classi.
+Tutti gli insiemi sono disgiunti e ottenuti con una split stratificata per preservare la distribuzione delle 10 classi:
+
+- training e validation sono estratti a caso dal training set ufficiale MNIST (60.000 immagini);
+- il test è estratto dal test set ufficiale MNIST (10.000 immagini), quindi è disgiunto per costruzione e scritto da persone diverse;
+- lo split è riproducibile (seed 42) e gli indici delle immagini nei set ufficiali sono salvati insieme ai dati.
 
 ## Protocollo sperimentale
 
@@ -105,7 +109,7 @@ Nel secondo giorno si:
 - flattens le immagini 28x28 in vettori 784-dimensionali
 - crea i tre insiemi train/validation/test con split stratificata
 - salva i dati preprocessati in una cartella dedicata
-- verifica forma dei tensori, distribuzione delle classi e assenza di overlap
+- verifica forma dei tensori, distribuzione delle classi e assenza di overlap (`check_data.py`)
 
 ## Esecuzione
 
@@ -115,7 +119,21 @@ Per preparare il dataset:
 python data.py
 ```
 
-Il comando genera i dataset preprocessati e salva il file `data/processed/mnist_split.npz`.
+Il comando scarica MNIST (solo la prima volta), genera lo split e salva `data/processed/mnist_split.npz` e `data/processed/dataset_summary.json`. La cartella `data/` non è versionata: ognuno la rigenera in locale con lo stesso seed e ottiene lo stesso split.
+
+Per verificare lo split (dimensioni, disgiunzione, distribuzione delle classi, riproducibilità) e vedere alcune cifre:
+
+```bash
+python check_data.py
+```
+
+Negli altri script i dati si caricano già come tensori PyTorch:
+
+```python
+from data import load_splits, get_device
+s = load_splits(device=get_device())
+X_train, y_train = s["train"]
+```
 
 ## Nota metodologica
 
