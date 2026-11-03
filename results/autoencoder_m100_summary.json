@@ -1,0 +1,20 @@
+{
+  "hidden_size": 100,
+  "optimizer": "RProp",
+  "optimizer_lr": 0.01,
+  "batch_mode": "full_training_set",
+  "loss": "MSE",
+  "max_epochs": 300,
+  "epochs_completed": 300,
+  "best_epoch": 300,
+  "best_train_mse": 0.0036473211366683245,
+  "best_val_mse": 0.0043153767473995686,
+  "patience": 10,
+  "min_delta": 1e-06,
+  "stopped_early": false,
+  "stop_reason": "max_epochs",
+  "training_seconds": 56.086738399928436,
+  "device": "cpu",
+  "checkpoint": "checkpoints\\autoencoder_m100_best.pt",
+  "history": "results\\autoencoder_m100_history.csv"
+}
