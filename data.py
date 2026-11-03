@@ -124,24 +124,29 @@ def build_split(seed: int = SEED, output_dir: Path = PROCESSED_DIR, save: bool =
     return splits
 
 
-def load_splits(device=None, return_indices=False):
-    """Carica lo split salvato e lo restituisce come dizionario dei tensori PyTorch."""
+def load_splits(device=None, return_indices=False, names=("train", "val", "test")):
+    """Carica solo gli split richiesti e li restituisce come tensori PyTorch."""
     if not SPLIT_FILE.exists():
         build_split()
+
+    # Rifiuta nomi non validi prima di leggere le chiavi del file NPZ.
+    invalid_names = set(names) - {"train", "val", "test"}
+    if invalid_names:
+        raise ValueError(f"Unknown split names: {sorted(invalid_names)}")
 
     data = np.load(SPLIT_FILE)
     result = {}
 
-    for name in ("train", "val", "test"):
+    # Carica soltanto i set richiesti, per esempio escludendo il test dal training.
+    for name in names:
         X = torch.tensor(data[f"X_{name}"], dtype=torch.float32, device=device)
         y = torch.tensor(data[f"y_{name}"], dtype=torch.long, device=device)
         result[name] = (X, y)
 
     if return_indices:
         result["indices"] = {
-            "train": torch.tensor(data["train_idx"], dtype=torch.long, device=device),
-            "val": torch.tensor(data["val_idx"], dtype=torch.long, device=device),
-            "test": torch.tensor(data["test_idx"], dtype=torch.long, device=device),
+            name: torch.tensor(data[f"{name}_idx"], dtype=torch.long, device=device)
+            for name in names
         }
 
     return result

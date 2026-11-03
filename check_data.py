@@ -104,7 +104,8 @@ def main() -> None:
     #    gli indici con quelli salvati: devono coincidere esattamente.
     # --------------------------------------------------------------------- #
     print("\n== Riproducibilità ==")
-    _, again = build_split(SEED)
+    # Rigenera gli indici senza salvare o modificare i file preprocessati.
+    again = build_split(SEED, save=False)["indices"]
     check(all(np.array_equal(idx[k], again[k]) for k in idx),
           f"stesso seed ({SEED}) -> stessi split del file salvato")
 

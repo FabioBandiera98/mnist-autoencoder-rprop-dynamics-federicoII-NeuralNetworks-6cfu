@@ -45,10 +45,13 @@ Per ogni dimensione latente h in {25, 50, 75, 100, 125}:
 
 - encoder: 784 -> h
 - decoder: h -> 784
-- funzione di perdita: reconstruction loss (MSE o BCE)
+- attivazione sigmoidale nell'encoder e nel decoder; l'uscita resta in [0, 1]
+- funzione di perdita: Mean Squared Error (MSE) sui pixel normalizzati
 - training solo sul training set
-- monitoraggio su training e validation
-- early stopping basato sulla validation loss
+- RProp batch: un gradiente calcolato sull'intero training set per epoca
+- monitoraggio della reconstruction MSE su training e validation a ogni epoca
+- early stopping basato sulla validation MSE, con patience 10 e miglioramento minimo 1e-6
+- massimo 300 epoche; il checkpoint con validation MSE migliore viene conservato
 
 ### 3. Classificatore
 
@@ -126,6 +129,26 @@ Per verificare lo split (dimensioni, disgiunzione, distribuzione delle classi, r
 ```bash
 python check_data.py
 ```
+
+Per verificare le cinque architetture senza avviare il training:
+
+```bash
+python autoencoder.py --check-model
+```
+
+Per allenare un singolo modello, per esempio quello con 50 neuroni latenti:
+
+```bash
+python autoencoder.py --hidden-size 50
+```
+
+Per allenare in sequenza tutti e cinque i modelli con lo stesso protocollo:
+
+```bash
+python autoencoder.py --all
+```
+
+Il trainer salva un checkpoint, un CSV con le metriche per epoca e un riepilogo JSON separati per ciascuna dimensione latente. Ad esempio, per m=25 usa `checkpoints/autoencoder_m25_best.pt`, `results/autoencoder_m25_history.csv` e `results/autoencoder_m25_summary.json`. Ogni riepilogo specifica se l'addestramento è terminato per patience o per raggiungimento del massimo di epoche.
 
 Negli altri script i dati si caricano già come tensori PyTorch:
 
