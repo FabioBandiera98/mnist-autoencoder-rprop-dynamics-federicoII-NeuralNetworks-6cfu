@@ -150,6 +150,14 @@ python autoencoder.py --all
 
 Il trainer salva un checkpoint, un CSV con le metriche per epoca e un riepilogo JSON separati per ciascuna dimensione latente. Ad esempio, per m=25 usa `checkpoints/autoencoder_m25_best.pt`, `results/autoencoder_m25_history.csv` e `results/autoencoder_m25_summary.json`. Ogni riepilogo specifica se l'addestramento è terminato per patience o per raggiungimento del massimo di epoche.
 
+Per estrarre le rappresentazioni con i checkpoint selezionati:
+
+```bash
+python extract_features.py
+```
+
+Lo script genera 15 matrici (train, validation e test per ciascun valore di m) nella cartella `data/features/`. Ogni archivio `mnist_features_m{m}.npz` contiene `X_train`, `X_val`, `X_test` e le rispettive label `y_train`, `y_val`, `y_test`. Il file `feature_summary.json` registra forme, checkpoint e relativa epoca e validation MSE.
+
 Negli altri script i dati si caricano già come tensori PyTorch:
 
 ```python
