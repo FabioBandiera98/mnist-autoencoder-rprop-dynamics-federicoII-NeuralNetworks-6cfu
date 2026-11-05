@@ -2,11 +2,12 @@
 
 import argparse
 import json
+import time
 
 import numpy as np
 import torch
 
-from autoencoder import Autoencoder, HIDDEN_SIZES, PROJECT_DIR, load_autoencoder, output_paths
+from autoencoder import Autoencoder, HIDDEN_SIZES, PROJECT_DIR, format_duration, load_autoencoder, output_paths
 from data import SEED, get_device, load_splits
 
 FEATURES_DIR = PROJECT_DIR / "data" / "features"
@@ -112,6 +113,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     """Estrae le feature per tutti i cinque modelli e crea un manifest di controllo."""
+    # Avvia il timer del programma: misura tutto, dal lancio alla fine.
+    program_start = time.perf_counter()
+
     args = parse_args()
     device = get_device()
     print(f"Device: {device} | seed autoencoder: {args.seed}")
@@ -144,6 +148,9 @@ def main() -> None:
 
     print(f"\nGenerate {len(HIDDEN_SIZES) * 3} matrici di feature.")
     print(f"File riepilogativo: {manifest_path}")
+
+    # Tempo effettivo di tutto il programma.
+    print(f"\nTempo totale del programma: {format_duration(time.perf_counter() - program_start)}")
 
 
 if __name__ == "__main__":

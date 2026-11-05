@@ -109,6 +109,12 @@ def mean_rprop_step(optimizer: torch.optim.Rprop) -> float:
     return torch.cat(steps).mean().item() if steps else RPROP_LR
 
 
+def format_duration(seconds: float) -> str:
+    """Formatta una durata in modo leggibile, per esempio '2 min 05.3 s' oppure '12.1 s'."""
+    minutes, secs = divmod(seconds, 60)
+    return f"{int(minutes)} min {secs:04.1f} s" if minutes >= 1 else f"{secs:.1f} s"
+
+
 def output_paths(hidden_size: int, seed: int) -> tuple[Path, Path, Path]:
     """Percorsi di checkpoint, log e riepilogo; il seed compare nel nome solo se non è quello di default."""
     tag = f"autoencoder_m{hidden_size}" + ("" if seed == SEED else f"_s{seed}")
@@ -177,6 +183,7 @@ def train_autoencoder(
     stop_reason = "max_epochs"
     start_time = time.perf_counter()
 
+    print("Loss = MSE di ricostruzione (media per pixel); più è bassa, migliore è la ricostruzione.")
     print(
         f"m={hidden_size} | seed={seed} | max_epochs={max_epochs} | patience={patience} | "
         f"min_rel_delta={min_rel_delta} | device={device}"
@@ -226,8 +233,8 @@ def train_autoencoder(
                 # Il CSV resta leggibile anche se il training si interrompe.
                 history_file.flush()
                 print(
-                    f"Epoch {epoch:5d} | train MSE: {train_mse:.6f} | val MSE: {val_mse:.6f} | "
-                    f"best: {best_val_loss:.6f} (epoch {best_epoch}) | mean step: {record['mean_step']:.2e}"
+                    f"Epoch {epoch:5d} | train loss: {train_mse:.6f} | val loss: {val_mse:.6f} | "
+                    f"best val loss: {best_val_loss:.6f} (epoch {best_epoch}) | mean step: {record['mean_step']:.2e}"
                 )
 
             # Ferma dopo patience epoche senza un miglioramento significativo.
@@ -292,9 +299,10 @@ def train_autoencoder(
     with summary_path.open("w", encoding="utf-8") as summary_file:
         json.dump(summary, summary_file, indent=2)
 
+    # La loss è la MSE di ricostruzione: media su tutti i pixel di tutte le immagini.
     print(
         f"Fine: best epoch {best_epoch}, stop epoch {summary['epochs_completed']} ({stop_reason}) | "
-        f"val MSE {best_val_loss:.6f} | test MSE {test_mse:.6f} | {total_seconds:.1f}s"
+        f"val loss {best_val_loss:.6f} | test loss {test_mse:.6f} | {total_seconds:.1f}s"
     )
     print(f"Best checkpoint: {checkpoint_path}")
     print(f"Per-epoch log:   {history_path}")
@@ -329,6 +337,9 @@ def parse_args() -> argparse.Namespace:
 
 
 if __name__ == "__main__":
+    # Avvia il timer del programma: misura tutto, dal lancio alla fine.
+    program_start = time.perf_counter()
+
     # Il flag --check-model esegue il controllo architetturale; altrimenti parte il training.
     args = parse_args()
     if args.check_model:
@@ -336,9 +347,12 @@ if __name__ == "__main__":
     else:
         # Con --all si usano gli stessi criteri e parametri per ciascuna dimensione latente.
         hidden_sizes = HIDDEN_SIZES if args.all else (args.hidden_size,)
+        timings = []
         for hidden_size in hidden_sizes:
             print(f"\n=== Autoencoder con hidden size {hidden_size} ===")
-            train_autoencoder(
+            # Tempo totale del modello: caricamento dati, training, test e salvataggi.
+            model_start = time.perf_counter()
+            summary = train_autoencoder(
                 max_epochs=args.max_epochs,
                 patience=args.patience,
                 min_rel_delta=args.min_rel_delta,
@@ -346,3 +360,15 @@ if __name__ == "__main__":
                 seed=args.seed,
                 log_every=args.log_every,
             )
+            timings.append((hidden_size, summary["epochs_completed"],
+                            summary["training_seconds"], time.perf_counter() - model_start))
+
+        # Riepilogo dei tempi: solo ciclo di training e totale per modello.
+        print("\n=== Tempi ===")
+        print(f"{'m':>4} {'epoche':>7} {'training':>14} {'totale modello':>16}")
+        for hidden_size, epochs, train_seconds, model_seconds in timings:
+            print(f"{hidden_size:>4} {epochs:>7} {format_duration(train_seconds):>14} "
+                  f"{format_duration(model_seconds):>16}")
+
+    # Tempo effettivo di tutto il programma.
+    print(f"\nTempo totale del programma: {format_duration(time.perf_counter() - program_start)}")

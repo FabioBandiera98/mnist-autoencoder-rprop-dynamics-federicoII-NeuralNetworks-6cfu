@@ -20,6 +20,7 @@ Uso:
 import argparse
 import csv
 import json
+import time
 
 import matplotlib
 
@@ -28,7 +29,7 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import torch
 
-from autoencoder import HIDDEN_SIZES, PROJECT_DIR, RESULTS_DIR, load_autoencoder, output_paths
+from autoencoder import HIDDEN_SIZES, PROJECT_DIR, RESULTS_DIR, format_duration, load_autoencoder, output_paths
 from data import SEED, get_device, load_splits
 
 FIG_DIR = RESULTS_DIR / "figures"
@@ -113,9 +114,10 @@ def save_table(rows: list) -> None:
         writer.writeheader()
         writer.writerows(rows)
 
-    header = (f"{'m':>4} {'compr':>6} {'best':>6} {'stop':>6} {'conv':>5} {'train MSE':>10} "
-              f"{'val MSE':>10} {'test MSE':>10} {'satur%':>7} {'cost.':>5} {'sec':>7}")
-    print("\n" + header + "\n" + "-" * len(header))
+    header = (f"{'m':>4} {'compr':>6} {'best':>6} {'stop':>6} {'conv':>5} {'train loss':>10} "
+              f"{'val loss':>10} {'test loss':>10} {'satur%':>7} {'cost.':>5} {'sec':>7}")
+    print("\nLoss = MSE di ricostruzione (media per pixel), sui pesi della best epoch.")
+    print(header + "\n" + "-" * len(header))
     for r in rows:
         print(f"{r['m']:>4} {r['compression']:>6} {r['best_epoch']:>6} {r['epochs_completed']:>6} "
               f"{'sì' if r['converged'] else 'no':>5} {r['train_mse']:>10.6f} {r['val_mse']:>10.6f} "
@@ -136,7 +138,7 @@ def plot_single_curves(runs: dict) -> None:
         # La MSE scende di ordini di grandezza.
         ax.set_yscale("log")
         ax.set_xlabel("epoca (= aggiornamento RProp)")
-        ax.set_ylabel("MSE di ricostruzione")
+        ax.set_ylabel("loss (MSE di ricostruzione)")
         ax.set_title(f"Autoencoder m = {m}")
         ax.legend()
         fig.tight_layout()
@@ -153,8 +155,8 @@ def plot_val_curves(runs: dict, colors: dict) -> None:
         ax.plot(s["best_epoch"], s["best_val_mse"], "o", color=colors[m], markersize=5)
     ax.set_yscale("log")
     ax.set_xlabel("epoca (= aggiornamento RProp)")
-    ax.set_ylabel("validation MSE")
-    ax.set_title("Validation MSE degli autoencoder (pallino = best epoch)")
+    ax.set_ylabel("validation loss (MSE)")
+    ax.set_title("Validation loss degli autoencoder (pallino = best epoch)")
     ax.legend()
     fig.tight_layout()
     fig.savefig(FIG_DIR / "ae_val_loss.png", dpi=150)
@@ -171,8 +173,8 @@ def plot_mse_vs_m(rows: list) -> None:
         ax.plot(m, [r[key] for r in rows], marker=marker, label=label)
     ax.set_xticks(m)
     ax.set_xlabel("m (neuroni nascosti)")
-    ax.set_ylabel("MSE di ricostruzione")
-    ax.set_title("Errore di ricostruzione al variare di m")
+    ax.set_ylabel("loss (MSE di ricostruzione)")
+    ax.set_title("Loss di ricostruzione al variare di m")
     ax.legend()
     fig.tight_layout()
     fig.savefig(FIG_DIR / "ae_mse_vs_m.png", dpi=150)
@@ -229,6 +231,9 @@ def plot_reconstructions(runs: dict, X_test: torch.Tensor, y_test: torch.Tensor,
 
 def main() -> None:
     """Costruisce la tabella e tutte le figure di confronto dei cinque autoencoder."""
+    # Avvia il timer del programma: misura tutto, dal lancio alla fine.
+    program_start = time.perf_counter()
+
     # Legge da riga di comando il seed dei modelli da confrontare.
     parser = argparse.ArgumentParser(description="Confronto dei cinque autoencoder (giorno 6).")
     parser.add_argument("--seed", type=int, default=SEED, help="seed degli autoencoder da confrontare")
@@ -251,6 +256,9 @@ def main() -> None:
     plot_epochs_vs_m(rows, colors)
     plot_reconstructions(runs, *splits["test"], device)
     print(f"Figure: {FIG_DIR.relative_to(PROJECT_DIR)}")
+
+    # Tempo effettivo di tutto il programma.
+    print(f"\nTempo totale del programma: {format_duration(time.perf_counter() - program_start)}")
 
 
 if __name__ == "__main__":

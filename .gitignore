@@ -13,3 +13,7 @@ __pycache__/
 
 # IDE
 .idea/
+
+# Output degli esperimenti: per ora sono prove, si rigenerano lanciando gli script
+checkpoints/
+results/
