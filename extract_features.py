@@ -1,13 +1,13 @@
 """Estrae e salva le rappresentazioni latenti dei cinque autoencoder MNIST."""
 
+import argparse
 import json
-from pathlib import Path
 
 import numpy as np
 import torch
 
-from autoencoder import Autoencoder, CHECKPOINT_DIR, HIDDEN_SIZES, PROJECT_DIR
-from data import get_device, load_splits
+from autoencoder import Autoencoder, HIDDEN_SIZES, PROJECT_DIR, load_autoencoder, output_paths
+from data import SEED, get_device, load_splits
 
 FEATURES_DIR = PROJECT_DIR / "data" / "features"
 BATCH_SIZE = 1024
@@ -29,20 +29,33 @@ def encode_in_batches(model: Autoencoder, inputs: torch.Tensor, device: torch.de
     return torch.cat(latent_batches, dim=0).numpy().astype(np.float32, copy=False)
 
 
-def extract_for_hidden_size(hidden_size: int, splits: dict, device: torch.device) -> dict:
-    """Estrae le feature dei tre split usando il checkpoint selezionato in Day 7."""
-    checkpoint_path = CHECKPOINT_DIR / f"autoencoder_m{hidden_size}_best.pt"
-    if not checkpoint_path.exists():
-        raise FileNotFoundError(f"Checkpoint mancante per m={hidden_size}: {checkpoint_path}")
+def seed_suffix(seed: int) -> str:
+    """Suffisso dei file di output: vuoto per il seed di default, '_s<seed>' altrimenti."""
+    return "" if seed == SEED else f"_s{seed}"
 
-    # Carica i metadati e i pesi del modello selezionato con validation.
-    checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    if checkpoint["hidden_size"] != hidden_size or checkpoint["input_size"] != 784:
+
+def extract_for_hidden_size(hidden_size: int, seed: int, splits: dict, device: torch.device) -> dict:
+    """Estrae le feature dei tre split usando il checkpoint selezionato in Day 7."""
+    # Usa gli stessi percorsi di autoencoder.py, così checkpoint e riepilogo corrispondono al seed scelto.
+    checkpoint_path, _, ae_summary_path = output_paths(hidden_size, seed)
+    if not checkpoint_path.exists() or not ae_summary_path.exists():
+        raise FileNotFoundError(
+            f"Checkpoint o riepilogo mancante per m={hidden_size}, seed={seed}: lancia prima autoencoder.py."
+        )
+
+    # Ricarica il modello selezionato con validation, con la stessa funzione usata dagli altri script.
+    model = load_autoencoder(checkpoint_path, device)
+
+    # Verifica che l'architettura del checkpoint sia quella attesa: 784 -> m.
+    encoder_layer = model.encoder[0]
+    if encoder_layer.in_features != 784 or encoder_layer.out_features != hidden_size:
         raise ValueError(f"Architettura checkpoint non coerente per m={hidden_size}.")
 
-    # Ricostruisce la stessa architettura e applica i pesi salvati.
-    model = Autoencoder(input_size=checkpoint["input_size"], hidden_size=hidden_size).to(device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    # Legge dal riepilogo dell'autoencoder come si è concluso il suo training.
+    with ae_summary_path.open(encoding="utf-8") as summary_file:
+        ae_summary = json.load(summary_file)
+    if not ae_summary["stopped_early"]:
+        print(f"ATTENZIONE: l'autoencoder m={hidden_size} si è fermato al limite di epoche, non è converso.")
 
     feature_splits = {}
     for split_name in ("train", "val", "test"):
@@ -67,14 +80,21 @@ def extract_for_hidden_size(hidden_size: int, splits: dict, device: torch.device
 
     # Salva le tre matrici e le label abbinate in un file per autoencoder.
     FEATURES_DIR.mkdir(parents=True, exist_ok=True)
-    output_path = FEATURES_DIR / f"mnist_features_m{hidden_size}.npz"
+    output_path = FEATURES_DIR / f"mnist_features_m{hidden_size}{seed_suffix(seed)}.npz"
     np.savez_compressed(output_path, **feature_splits)
 
+    # Il manifest registra anche se l'autoencoder era converso: serve a riconoscere feature "vecchie".
     return {
         "hidden_size": hidden_size,
+        "seed": seed,
         "checkpoint": str(checkpoint_path.relative_to(PROJECT_DIR)),
-        "checkpoint_best_epoch": int(checkpoint["best_epoch"]),
-        "checkpoint_best_val_mse": float(checkpoint["best_val_mse"]),
+        "checkpoint_best_epoch": int(ae_summary["best_epoch"]),
+        "checkpoint_best_val_mse": float(ae_summary["best_val_mse"]),
+        "autoencoder_converged": bool(ae_summary["stopped_early"]),
+        "autoencoder_stop_reason": ae_summary["stop_reason"],
+        "autoencoder_epochs_completed": int(ae_summary["epochs_completed"]),
+        # Il riepilogo prodotto con la versione precedente di autoencoder.py non ha la test MSE.
+        "autoencoder_test_mse": ae_summary.get("test_mse"),
         "output_file": str(output_path.relative_to(PROJECT_DIR)),
         "feature_shapes": {
             split_name: list(feature_splits[f"X_{split_name}"].shape)
@@ -83,10 +103,18 @@ def extract_for_hidden_size(hidden_size: int, splits: dict, device: torch.device
     }
 
 
+def parse_args() -> argparse.Namespace:
+    """Legge da riga di comando il seed degli autoencoder da cui estrarre le feature."""
+    parser = argparse.ArgumentParser(description="Estrae le feature latenti dei cinque autoencoder.")
+    parser.add_argument("--seed", type=int, default=SEED, help="Seed degli autoencoder (default: 42).")
+    return parser.parse_args()
+
+
 def main() -> None:
     """Estrae le feature per tutti i cinque modelli e crea un manifest di controllo."""
+    args = parse_args()
     device = get_device()
-    print(f"Device: {device}")
+    print(f"Device: {device} | seed autoencoder: {args.seed}")
 
     # Carica una sola volta immagini e label di tutti gli split.
     splits = load_splits(device="cpu", names=("train", "val", "test"))
@@ -95,10 +123,10 @@ def main() -> None:
     # Usa in sequenza il checkpoint selezionato di ciascuna dimensione latente.
     for hidden_size in HIDDEN_SIZES:
         print(f"\n=== Estrazione feature con m={hidden_size} ===")
-        summaries.append(extract_for_hidden_size(hidden_size, splits, device))
+        summaries.append(extract_for_hidden_size(hidden_size, args.seed, splits, device))
 
-    # Registra provenienza, checkpoint e forme delle matrici generate.
-    manifest_path = FEATURES_DIR / "feature_summary.json"
+    # Registra provenienza, checkpoint, convergenza e forme delle matrici generate.
+    manifest_path = FEATURES_DIR / f"feature_summary{seed_suffix(args.seed)}.json"
     with manifest_path.open("w", encoding="utf-8") as manifest_file:
         json.dump(
             {
@@ -106,6 +134,8 @@ def main() -> None:
                 "splits": ["train", "val", "test"],
                 "batch_size": BATCH_SIZE,
                 "device": str(device),
+                "seed": args.seed,
+                "all_autoencoders_converged": all(s["autoencoder_converged"] for s in summaries),
                 "models": summaries,
             },
             manifest_file,

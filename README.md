@@ -50,8 +50,11 @@ Per ogni dimensione latente h in {25, 50, 75, 100, 125}:
 - training solo sul training set
 - RProp batch: un gradiente calcolato sull'intero training set per epoca
 - monitoraggio della reconstruction MSE su training e validation a ogni epoca
-- early stopping basato sulla validation MSE, con patience 10 e miglioramento minimo 1e-6
-- massimo 300 epoche; il checkpoint con validation MSE migliore viene conservato
+- early stopping basato sulla validation MSE: un'epoca conta come miglioramento solo se abbassa la miglior validation MSE di almeno lo 0,1% (soglia relativa); ci si ferma dopo 100 epoche consecutive senza miglioramento
+- massimo 10000 epoche, solo come limite di sicurezza; si conservano i pesi dell'epoca con validation MSE migliore (best epoch = epoche alla convergenza)
+- RProp (`torch.optim.Rprop`, variante iRprop-): Δ0 = 0.01, η- = 0.5, η+ = 1.2, Δmin = 1e-6, Δmax = 50
+- seed 42 per l'inizializzazione dei pesi (modificabile con `--seed`)
+- la MSE sul test viene calcolata una sola volta, alla fine, sui pesi della best epoch
 
 ### 3. Classificatore
 
@@ -150,6 +153,16 @@ python autoencoder.py --all
 
 Il trainer salva un checkpoint, un CSV con le metriche per epoca e un riepilogo JSON separati per ciascuna dimensione latente. Ad esempio, per m=25 usa `checkpoints/autoencoder_m25_best.pt`, `results/autoencoder_m25_history.csv` e `results/autoencoder_m25_summary.json`. Ogni riepilogo specifica se l'addestramento è terminato per patience o per raggiungimento del massimo di epoche.
 
+Ogni log per epoca contiene anche l'epoca 0 (pesi iniziali) e il passo medio di RProp (`mean_step`).
+
+Per confrontare i cinque autoencoder (giorno 6) dopo `python autoencoder.py --all`:
+
+```bash
+python compare_autoencoders.py
+```
+
+Lo script non addestra niente: produce `results/autoencoder_comparison.csv` (best epoch, convergenza, MSE su train/val/test, statistiche dell'encoder) e le figure in `results/figures/` (curve di loss, MSE ed epoche al variare di m, ricostruzioni di 10 cifre di test).
+
 Per estrarre le rappresentazioni con i checkpoint selezionati:
 
 ```bash
@@ -157,6 +170,14 @@ python extract_features.py
 ```
 
 Lo script genera 15 matrici (train, validation e test per ciascun valore di m) nella cartella `data/features/`. Ogni archivio `mnist_features_m{m}.npz` contiene `X_train`, `X_val`, `X_test` e le rispettive label `y_train`, `y_val`, `y_test`. Il file `feature_summary.json` registra forme, checkpoint e relativa epoca e validation MSE.
+
+Il manifest registra anche se ogni autoencoder era converso (`autoencoder_converged`) e, in `all_autoencoders_converged`, se lo erano tutti. Lo script stampa un avviso per ogni autoencoder fermato al limite di epoche. Le feature non sono versionate (`data/` è escluso da git): dopo ogni nuovo training degli autoencoder vanno rigenerate. Per gli autoencoder addestrati con un altro seed:
+
+```bash
+python extract_features.py --seed 1
+```
+
+In quel caso i file prendono il suffisso `_s1` (`mnist_features_m25_s1.npz`, `feature_summary_s1.json`).
 
 Negli altri script i dati si caricano già come tensori PyTorch:
 
@@ -169,3 +190,7 @@ X_train, y_train = s["train"]
 ## Nota metodologica
 
 La validazione non viene usata per aggiornare i pesi, ma solo per valutare la generalizzazione e decidere quando fermare il training. Il test set viene usato soltanto per la valutazione finale, dopo aver scelto tutte le configurazioni del modello.
+
+## Registro delle modifiche
+
+- 2026-11-05, autoencoder: il criterio iniziale (massimo 300 epoche, patience 10, miglioramento minimo assoluto 1e-6) faceva fermare tutti e cinque i modelli al limite di 300 epoche, con la validation MSE ancora in discesa. Una prova con 2000 epoche e soglia dello 0,01% non si fermava comunque, perché la curva entra in una coda molto lenta. Proposta la "convergenza pratica": miglioramento relativo minimo 0,1%, patience 100, limite 10000 epoche. Se confermata, vanno rifatti i cinque training (`python autoencoder.py --all`) e l'estrazione delle feature (`python extract_features.py`).

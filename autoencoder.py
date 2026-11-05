@@ -1,6 +1,7 @@
 """Autoencoder MNIST con training batch, validazione ed early stopping."""
 
 import argparse
+import copy
 import csv
 import json
 import time
@@ -16,10 +17,25 @@ CHECKPOINT_DIR = PROJECT_DIR / "checkpoints"
 RESULTS_DIR = PROJECT_DIR / "results"
 HIDDEN_SIZES = (25, 50, 75, 100, 125)
 DEFAULT_HIDDEN_SIZE = HIDDEN_SIZES[0]
-DEFAULT_MAX_EPOCHS = 300
-DEFAULT_PATIENCE = 10
-DEFAULT_MIN_DELTA = 1e-6
+
+# Early stopping ("convergenza pratica"): un'epoca conta come miglioramento solo se abbassa
+# la miglior validation MSE di almeno lo 0,1% (soglia RELATIVA, quindi equa per tutti gli m:
+# la MSE va da ~0.003 per m=125 a ~0.022 per m=25). Ci si ferma dopo 100 epoche consecutive
+# senza miglioramento. 10000 epoche è solo un limite di sicurezza.
+DEFAULT_MAX_EPOCHS = 10000
+DEFAULT_PATIENCE = 100
+DEFAULT_MIN_REL_DELTA = 1e-3
+
+# Iperparametri RProp, scritti per esteso (sono i default di torch.optim.Rprop).
+# Passo iniziale Δ0, uguale per ogni peso prima del primo aggiornamento.
 RPROP_LR = 0.01
+# (η-, η+): il passo si dimezza se il segno del gradiente cambia, cresce del 20% se resta uguale.
+RPROP_ETAS = (0.5, 1.2)
+# (Δmin, Δmax): limiti entro cui resta il passo di ogni peso.
+RPROP_STEP_SIZES = (1e-6, 50.0)
+
+# Ogni quante epoche stampare l'avanzamento a terminale.
+DEFAULT_LOG_EVERY = 100
 
 
 class Autoencoder(nn.Module):
@@ -81,18 +97,50 @@ def evaluate_reconstruction(model: Autoencoder, inputs: torch.Tensor) -> float:
     return float(loss.item())
 
 
+def mean_rprop_step(optimizer: torch.optim.Rprop) -> float:
+    """Media dei passi Δ_ij di RProp su tutti i pesi: mostra come RProp adatta i passi."""
+    steps = [
+        optimizer.state[p]["step_size"].flatten()
+        for group in optimizer.param_groups
+        for p in group["params"]
+        if "step_size" in optimizer.state[p]
+    ]
+    # Prima del primo aggiornamento lo stato è vuoto: ogni passo vale ancora Δ0.
+    return torch.cat(steps).mean().item() if steps else RPROP_LR
+
+
+def output_paths(hidden_size: int, seed: int) -> tuple[Path, Path, Path]:
+    """Percorsi di checkpoint, log e riepilogo; il seed compare nel nome solo se non è quello di default."""
+    tag = f"autoencoder_m{hidden_size}" + ("" if seed == SEED else f"_s{seed}")
+    return (
+        CHECKPOINT_DIR / f"{tag}_best.pt",
+        RESULTS_DIR / f"{tag}_history.csv",
+        RESULTS_DIR / f"{tag}_summary.json",
+    )
+
+
+def load_autoencoder(checkpoint_path: str | Path, device: torch.device | None = None) -> Autoencoder:
+    """Ricarica un autoencoder salvato: dal giorno 7 si userà model.encode(x) come input del classificatore."""
+    checkpoint = torch.load(checkpoint_path, map_location=device or "cpu", weights_only=True)
+    model = Autoencoder(input_size=checkpoint["input_size"], hidden_size=checkpoint["hidden_size"])
+    model.load_state_dict(checkpoint["model_state_dict"])
+    return model.to(device or "cpu").eval()
+
+
 def train_autoencoder(
     max_epochs: int = DEFAULT_MAX_EPOCHS,
     patience: int = DEFAULT_PATIENCE,
-    min_delta: float = DEFAULT_MIN_DELTA,
+    min_rel_delta: float = DEFAULT_MIN_REL_DELTA,
     hidden_size: int = DEFAULT_HIDDEN_SIZE,
+    seed: int = SEED,
+    log_every: int = DEFAULT_LOG_EVERY,
 ) -> dict:
     """Allena l'autoencoder con RProp batch e seleziona il checkpoint via validation MSE."""
     if max_epochs < 1 or patience < 1:
         raise ValueError("max_epochs e patience devono essere almeno 1.")
 
-    # Fissa le casualità e seleziona GPU, se disponibile.
-    set_seed(SEED)
+    # Fissa le casualità (inizializzazione dei pesi) e seleziona GPU, se disponibile.
+    set_seed(seed)
     device = get_device()
 
     # Carica solo train e validation: il test non partecipa al training né alla selezione.
@@ -102,27 +150,43 @@ def train_autoencoder(
 
     # Crea il modello 784 -> hidden_size -> 784 con RProp full-batch.
     model = Autoencoder(input_size=X_train.shape[1], hidden_size=hidden_size).to(device)
-    optimizer = torch.optim.Rprop(model.parameters(), lr=RPROP_LR)
+    optimizer = torch.optim.Rprop(
+        model.parameters(), lr=RPROP_LR, etas=RPROP_ETAS, step_sizes=RPROP_STEP_SIZES
+    )
 
     # Prepara le cartelle e i nomi dei file di output.
     CHECKPOINT_DIR.mkdir(parents=True, exist_ok=True)
     RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = CHECKPOINT_DIR / f"autoencoder_m{hidden_size}_best.pt"
-    history_path = RESULTS_DIR / f"autoencoder_m{hidden_size}_history.csv"
-    summary_path = RESULTS_DIR / f"autoencoder_m{hidden_size}_summary.json"
+    checkpoint_path, history_path, summary_path = output_paths(hidden_size, seed)
 
-    best_val_loss = float("inf")
+    # Epoca 0: errore dei pesi iniziali, così le curve partono dal modello non addestrato.
+    initial_record = {
+        "epoch": 0,
+        "train_mse": evaluate_reconstruction(model, X_train),
+        "val_mse": evaluate_reconstruction(model, X_val),
+        "mean_step": RPROP_LR,
+        "epoch_seconds": 0.0,
+    }
+    epoch_records = [initial_record]
+
+    # Il miglior modello si tiene in memoria e si salva su disco una volta sola, alla fine.
+    best_val_loss = initial_record["val_mse"]
     best_epoch = 0
+    best_state = copy.deepcopy(model.state_dict())
     epochs_without_improvement = 0
     stop_reason = "max_epochs"
-    epoch_records = []
     start_time = time.perf_counter()
+
+    print(
+        f"m={hidden_size} | seed={seed} | max_epochs={max_epochs} | patience={patience} | "
+        f"min_rel_delta={min_rel_delta} | device={device}"
+    )
 
     # Ogni epoca calcola un unico gradiente sull'intero training set.
     with history_path.open("w", newline="", encoding="utf-8") as history_file:
-        columns = ["epoch", "train_mse", "val_mse", "epoch_seconds"]
-        writer = csv.DictWriter(history_file, fieldnames=columns)
+        writer = csv.DictWriter(history_file, fieldnames=list(initial_record.keys()))
         writer.writeheader()
+        writer.writerow(initial_record)
 
         for epoch in range(1, max_epochs + 1):
             epoch_start = time.perf_counter()
@@ -133,7 +197,7 @@ def train_autoencoder(
             train_loss.backward()
             optimizer.step()
 
-            # La validation misura la ricostruzione senza partecipare agli aggiornamenti.
+            # Train e validation ricalcolate sui pesi appena aggiornati (stessi pesi per entrambe).
             train_mse = evaluate_reconstruction(model, X_train)
             val_mse = evaluate_reconstruction(model, X_val)
             epoch_seconds = time.perf_counter() - epoch_start
@@ -141,38 +205,30 @@ def train_autoencoder(
                 "epoch": epoch,
                 "train_mse": train_mse,
                 "val_mse": val_mse,
+                "mean_step": mean_rprop_step(optimizer),
                 "epoch_seconds": epoch_seconds,
             }
             epoch_records.append(record)
             writer.writerow(record)
-            history_file.flush()
 
-            # Conserva i pesi migliori secondo la validation MSE.
-            if val_mse < best_val_loss - min_delta:
+            # Miglioramento solo se la validation MSE scende almeno dello 0,1% rispetto al migliore.
+            if val_mse < best_val_loss * (1.0 - min_rel_delta):
                 best_val_loss = val_mse
                 best_epoch = epoch
+                # Copia dei pesi: state_dict() da solo è un riferimento e cambierebbe insieme al modello.
+                best_state = copy.deepcopy(model.state_dict())
                 epochs_without_improvement = 0
-                checkpoint = {
-                    "model_state_dict": model.state_dict(),
-                    "input_size": X_train.shape[1],
-                    "hidden_size": hidden_size,
-                    "best_epoch": best_epoch,
-                    "best_val_mse": best_val_loss,
-                    "seed": SEED,
-                    "optimizer": "RProp",
-                    "optimizer_lr": RPROP_LR,
-                    "batch_mode": "full_training_set",
-                    "loss": "MSE",
-                }
-                torch.save(checkpoint, checkpoint_path)
             else:
                 epochs_without_improvement += 1
 
-            print(
-                f"Epoch {epoch:03d}/{max_epochs} | "
-                f"train MSE: {train_mse:.6f} | val MSE: {val_mse:.6f} | "
-                f"best val MSE: {best_val_loss:.6f} (epoch {best_epoch})"
-            )
+            # Stampa ogni log_every epoche: con migliaia di epoche una riga per epoca è troppo.
+            if epoch % log_every == 0:
+                # Il CSV resta leggibile anche se il training si interrompe.
+                history_file.flush()
+                print(
+                    f"Epoch {epoch:5d} | train MSE: {train_mse:.6f} | val MSE: {val_mse:.6f} | "
+                    f"best: {best_val_loss:.6f} (epoch {best_epoch}) | mean step: {record['mean_step']:.2e}"
+                )
 
             # Ferma dopo patience epoche senza un miglioramento significativo.
             if epochs_without_improvement >= patience:
@@ -182,23 +238,33 @@ def train_autoencoder(
     total_seconds = time.perf_counter() - start_time
     stopped_early = stop_reason == "validation_patience"
 
-    # Ripristina il checkpoint scelto usando solo i risultati di validation.
-    best_checkpoint = torch.load(checkpoint_path, map_location=device, weights_only=True)
-    model.load_state_dict(best_checkpoint["model_state_dict"])
+    # Ripristina i pesi di E_best, scelti usando solo la validation.
+    model.load_state_dict(best_state)
+
+    # Valutazione finale: il test viene caricato e usato una sola volta, sui pesi di E_best.
+    X_test, _ = load_splits(device=device, names=("test",))["test"]
+    test_mse = evaluate_reconstruction(model, X_test)
 
     summary = {
         "hidden_size": hidden_size,
-        "optimizer": "RProp",
+        "seed": seed,
+        "optimizer": "RProp (iRprop-, torch.optim.Rprop)",
         "optimizer_lr": RPROP_LR,
+        "rprop_etas": RPROP_ETAS,
+        "rprop_step_sizes": RPROP_STEP_SIZES,
         "batch_mode": "full_training_set",
         "loss": "MSE",
         "max_epochs": max_epochs,
-        "epochs_completed": len(epoch_records),
+        # Epoche di training effettive, esclusa l'epoca 0 (pesi iniziali).
+        "epochs_completed": len(epoch_records) - 1,
+        # Epoca con la miglior validation MSE: è il numero di epoche alla convergenza.
         "best_epoch": best_epoch,
-        "best_train_mse": epoch_records[best_epoch - 1]["train_mse"],
+        "best_train_mse": epoch_records[best_epoch]["train_mse"],
         "best_val_mse": best_val_loss,
+        "test_mse": test_mse,
         "patience": patience,
-        "min_delta": min_delta,
+        "min_rel_delta": min_rel_delta,
+        # True = fermato per patience (converso); False = fermato al limite di epoche.
         "stopped_early": stopped_early,
         "stop_reason": stop_reason,
         "training_seconds": total_seconds,
@@ -206,13 +272,33 @@ def train_autoencoder(
         "checkpoint": str(checkpoint_path.relative_to(PROJECT_DIR)),
         "history": str(history_path.relative_to(PROJECT_DIR)),
     }
+
+    # Checkpoint dei pesi di E_best, con i metadati necessari a ricaricarlo.
+    torch.save(
+        {
+            "model_state_dict": best_state,
+            "input_size": X_train.shape[1],
+            "hidden_size": hidden_size,
+            "best_epoch": best_epoch,
+            "best_val_mse": best_val_loss,
+            "seed": seed,
+            "optimizer": "RProp",
+            "optimizer_lr": RPROP_LR,
+            "batch_mode": "full_training_set",
+            "loss": "MSE",
+        },
+        checkpoint_path,
+    )
     with summary_path.open("w", encoding="utf-8") as summary_file:
         json.dump(summary, summary_file, indent=2)
 
-    print(f"\nBest checkpoint: {checkpoint_path}")
+    print(
+        f"Fine: best epoch {best_epoch}, stop epoch {summary['epochs_completed']} ({stop_reason}) | "
+        f"val MSE {best_val_loss:.6f} | test MSE {test_mse:.6f} | {total_seconds:.1f}s"
+    )
+    print(f"Best checkpoint: {checkpoint_path}")
     print(f"Per-epoch log:   {history_path}")
     print(f"Summary:         {summary_path}")
-    print(f"Stopped because: {summary['stop_reason']}")
     return summary
 
 
@@ -234,7 +320,10 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS)
     parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE)
-    parser.add_argument("--min-delta", type=float, default=DEFAULT_MIN_DELTA)
+    parser.add_argument("--min-rel-delta", type=float, default=DEFAULT_MIN_REL_DELTA,
+                        help="Miglioramento relativo minimo della validation MSE (default: 0.001 = 0,1%%).")
+    parser.add_argument("--seed", type=int, default=SEED, help="Seed per l'inizializzazione dei pesi.")
+    parser.add_argument("--log-every", type=int, default=DEFAULT_LOG_EVERY)
     parser.add_argument("--check-model", action="store_true", help="Verifica tutte le architetture, senza training.")
     return parser.parse_args()
 
@@ -244,20 +333,16 @@ if __name__ == "__main__":
     args = parse_args()
     if args.check_model:
         check_model()
-    elif args.all:
-        # Esegue gli stessi criteri e parametri per ciascuna dimensione latente.
-        for hidden_size in HIDDEN_SIZES:
+    else:
+        # Con --all si usano gli stessi criteri e parametri per ciascuna dimensione latente.
+        hidden_sizes = HIDDEN_SIZES if args.all else (args.hidden_size,)
+        for hidden_size in hidden_sizes:
             print(f"\n=== Autoencoder con hidden size {hidden_size} ===")
             train_autoencoder(
                 max_epochs=args.max_epochs,
                 patience=args.patience,
-                min_delta=args.min_delta,
+                min_rel_delta=args.min_rel_delta,
                 hidden_size=hidden_size,
+                seed=args.seed,
+                log_every=args.log_every,
             )
-    else:
-        train_autoencoder(
-            max_epochs=args.max_epochs,
-            patience=args.patience,
-            min_delta=args.min_delta,
-            hidden_size=args.hidden_size,
-        )
