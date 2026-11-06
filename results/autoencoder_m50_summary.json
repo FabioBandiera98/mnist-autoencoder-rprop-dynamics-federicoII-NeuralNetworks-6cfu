@@ -1,0 +1,30 @@
+{
+  "hidden_size": 50,
+  "seed": 42,
+  "optimizer": "RProp (iRprop-, torch.optim.Rprop)",
+  "optimizer_lr": 0.01,
+  "rprop_etas": [
+    0.5,
+    1.2
+  ],
+  "rprop_step_sizes": [
+    1e-06,
+    50.0
+  ],
+  "batch_mode": "full_training_set",
+  "loss": "MSE",
+  "max_epochs": 10000,
+  "epochs_completed": 3676,
+  "best_epoch": 3676,
+  "best_train_mse": 0.005542172584682703,
+  "best_val_mse": 0.006293115206062794,
+  "test_mse": 0.005908778868615627,
+  "patience": 100,
+  "min_rel_delta": 0.001,
+  "stopped_early": true,
+  "stop_reason": "validation_patience",
+  "training_seconds": 668.4928133001085,
+  "device": "cpu",
+  "checkpoint": "checkpoints\\autoencoder_m50_best.pt",
+  "history": "results\\autoencoder_m50_history.csv"
+}

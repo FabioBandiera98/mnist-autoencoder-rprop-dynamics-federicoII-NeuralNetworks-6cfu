@@ -53,20 +53,23 @@ Per ogni dimensione latente h in {25, 50, 75, 100, 125}:
 - early stopping basato sulla validation MSE: un'epoca conta come miglioramento solo se abbassa la miglior validation MSE di almeno lo 0,1% (soglia relativa); ci si ferma dopo 100 epoche consecutive senza miglioramento
 - massimo 10000 epoche, solo come limite di sicurezza; si conservano i pesi dell'epoca con validation MSE migliore (best epoch = epoche alla convergenza)
 - RProp (`torch.optim.Rprop`, variante iRprop-): Δ0 = 0.01, η- = 0.5, η+ = 1.2, Δmin = 1e-6, Δmax = 50
-- seed 42 per l'inizializzazione dei pesi (modificabile con `--seed`)
+- seed 42 come riferimento; i seed 1 e 2 servono a misurare la variabilità dell'autoencoder (`python autoencoder.py --all-seeds`)
 - la MSE sul test viene calcolata una sola volta, alla fine, sui pesi della best epoch
 
 ### 3. Classificatore
 
-Per ogni rappresentazione codificata:
+Si allenano i classificatori sulle rappresentazioni dell'autoencoder con seed 42, così il confronto fra dimensioni latenti non confonde l'effetto di `m` con un encoder diverso. Le altre inizializzazioni degli autoencoder (seed 1 e 2) sono un'analisi di robustezza separata.
 
-- input: rappresentazione ottenuta dall'encoder
-- hidden layer singolo
-- funzione di attivazione sigmoidale
-- output: 10 classi (0..9)
-- RProp in batch
-- training loss e validation loss monitorati ad ogni epoca
-- checkpoint migliore selezionato tramite validation accuracy
+- cinque input: feature con `m` in {25, 50, 75, 100, 125}, più baseline sui 784 pixel grezzi
+- un hidden layer con 64 neuroni e attivazione sigmoidale, uguale per tutti gli input
+- 10 logits in uscita; `CrossEntropyLoss` applica internamente softmax e log-loss, quindi non si aggiunge una softmax al modello
+- le feature latenti sono già in [0,1]: non si applica uno scaler
+- RProp batch: un gradiente sull'intero training set per ogni epoca
+- 5 seed del classificatore: 1, 2, 3, 4, 5 per ciascun input
+- a ogni epoca si registrano cross-entropy e accuracy su train e validation
+- checkpoint scelto con la validation loss migliore; l'accuracy è registrata come metrica, non usata per lo stopping
+- convergenza pratica: la validation loss deve migliorare almeno dello 0,1% rispetto al minimo precedente; patience 100 e massimo 10.000 epoche come limite di sicurezza
+- il test è valutato una sola volta, sui pesi del best checkpoint; si riportano loss, accuracy, epoca migliore e tempo
 
 ### 4. Valutazione
 
@@ -151,6 +154,12 @@ Per allenare in sequenza tutti e cinque i modelli con lo stesso protocollo:
 python autoencoder.py --all
 ```
 
+Per la valutazione robusta suggerita, allenare ogni dimensione con tutti e tre i seed 42, 1 e 2:
+
+```bash
+python autoencoder.py --all-seeds
+```
+
 Il trainer salva un checkpoint, un CSV con le metriche per epoca e un riepilogo JSON separati per ciascuna dimensione latente. Ad esempio, per m=25 usa `checkpoints/autoencoder_m25_best.pt`, `results/autoencoder_m25_history.csv` e `results/autoencoder_m25_summary.json`. Ogni riepilogo specifica se l'addestramento è terminato per patience o per raggiungimento del massimo di epoche.
 
 Ogni log per epoca contiene anche l'epoca 0 (pesi iniziali) e il passo medio di RProp (`mean_step`).
@@ -177,7 +186,48 @@ Il manifest registra anche se ogni autoencoder era converso (`autoencoder_conver
 python extract_features.py --seed 1
 ```
 
-In quel caso i file prendono il suffisso `_s1` (`mnist_features_m25_s1.npz`, `feature_summary_s1.json`).
+In quel caso i file prendono il suffisso `_s1` (`mnist_features_m25_s1.npz`, `feature_summary_s1.json`). Per i classificatori del confronto principale usare le feature del seed 42.
+
+Per provare rete, cross-entropy e aggiornamento RProp su pochi campioni, senza avviare un esperimento completo:
+
+```bash
+python classifier.py --smoke-test
+```
+
+Per allenare una configurazione, per esempio il classificatore su `m=25` con seed 1:
+
+```bash
+python classifier.py --representation m25 --seed 1
+```
+
+La rappresentazione `raw` allena la baseline sui pixel MNIST originali. Per l'esperimento completo (baseline e cinque dimensioni latenti, cinque seed ciascuna):
+
+```bash
+python classifier.py --all
+```
+
+Il classificatore salva un checkpoint, un CSV per epoca e un riepilogo JSON per ogni coppia input/seed. Il CSV comprende anche l'epoca 0 (prestazioni iniziali); il riepilogo indica chiaramente `converged` e `stop_reason`. Le esecuzioni multi-seed generano inoltre `results/classifier_comparison.csv` con media e deviazione standard di accuracy/loss sul test e best epoch.
+
+Per automatizzare i giorni 11-14, eseguire il runner della campagna invece del comando manuale `classifier.py --all`. Prima devono essere conclusi tutti e cinque gli autoencoder seed 42. Se ne manca uno, completarli con `python autoencoder.py --all --seed 42`. Il runner verifica checkpoint e protocollo, rigenera su CPU le feature obsolete e controlla forme, label e impronte degli input; se manca un prerequisito si ferma senza avviare classificatori. Se il preflight passa, lancia 30 configurazioni in sequenza (sei rappresentazioni per cinque seed classificatore):
+
+```bash
+python run_classifier_campaign.py --run-id Fabio-3050 --dry-run
+python run_classifier_campaign.py --run-id Fabio-3050
+```
+
+Sul secondo computer usare un `run-id` diverso, ad esempio `Yegor-3080`. Il default usa CUDA se disponibile; su CPU il runner si ferma prima dei training, a meno di passare esplicitamente `--allow-cpu`. Ogni PC salva checkpoint, CSV e riepiloghi sotto `results/campaigns/<run-id>/`. Se la campagna viene interrotta, rilanciare lo stesso comando e `run-id`: i run già completi vengono saltati. Se cambiano protocollo, feature o checkpoint, il runner rifiuta il resume per non mescolare esperimenti diversi.
+
+Per confrontare i risultati dopo aver portato la cartella campagna di Yegor `results/campaigns/Yegor-3080/` in questo workspace, eseguire:
+
+```bash
+python compare_classifier_campaigns.py Fabio-3050 Yegor-3080
+```
+
+Il confronto salva `results/campaigns/combined_comparison.csv`, con una riga per macchina e rappresentazione, media e deviazione standard dei cinque seed, epoche migliori e convergenza. Controlla anche se entrambi i PC hanno usato lo stesso split e le stesse feature. Se le impronte differiscono, i risultati restano separati e non devono essere aggregati fra computer.
+
+Il comparatore riconosce i 30 risultati già completati di Fabio nei percorsi standard `results/classifier_*` e `checkpoints/classifier_*`; non occorre copiarli o riaddestrarli per inserirli in una cartella campagna.
+
+Per confrontare davvero gli hardware a parità di input, condividere fra i PC gli stessi cinque checkpoint degli autoencoder seed 42 (`checkpoints/autoencoder_m*_best.pt`) prima di lanciare la campagna. Le feature sono rigenerate su CPU a partire da quei checkpoint. I checkpoint e i risultati non sono esclusi da `.gitignore`; `data/` resta locale e viene rigenerata.
 
 Negli altri script i dati si caricano già come tensori PyTorch:
 
@@ -193,4 +243,4 @@ La validazione non viene usata per aggiornare i pesi, ma solo per valutare la ge
 
 ## Registro delle modifiche
 
-- 2026-11-05, autoencoder: il criterio iniziale (massimo 300 epoche, patience 10, miglioramento minimo assoluto 1e-6) faceva fermare tutti e cinque i modelli al limite di 300 epoche, con la validation MSE ancora in discesa. Una prova con 2000 epoche e soglia dello 0,01% non si fermava comunque, perché la curva entra in una coda molto lenta. Proposta la "convergenza pratica": miglioramento relativo minimo 0,1%, patience 100, limite 10000 epoche. Se confermata, vanno rifatti i cinque training (`python autoencoder.py --all`) e l'estrazione delle feature (`python extract_features.py`).
+- 2026-11-05, protocollo adottato: autoencoder con seed 42, 1 e 2; classificatore con 64 neuroni nascosti, seed 1-5, baseline raw e arresto via validation loss con soglia relativa 0,1%, patience 100 e massimo 10.000 epoche. I file in `checkpoints/` e `results/` sono tracciabili da Git; `data/` resta esclusa e va rigenerata localmente. La campagna registra ambiente e impronte dei dati per confrontare due PC.

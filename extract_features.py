@@ -1,8 +1,10 @@
 """Estrae e salva le rappresentazioni latenti dei cinque autoencoder MNIST."""
 
 import argparse
+import hashlib
 import json
 import time
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -33,6 +35,15 @@ def encode_in_batches(model: Autoencoder, inputs: torch.Tensor, device: torch.de
 def seed_suffix(seed: int) -> str:
     """Suffisso dei file di output: vuoto per il seed di default, '_s<seed>' altrimenti."""
     return "" if seed == SEED else f"_s{seed}"
+
+
+def sha256_file(path: Path) -> str:
+    """Calcola l'impronta del checkpoint per identificare la rete che ha prodotto le feature."""
+    digest = hashlib.sha256()
+    with path.open("rb") as checkpoint_file:
+        for chunk in iter(lambda: checkpoint_file.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
 
 
 def extract_for_hidden_size(hidden_size: int, seed: int, splits: dict, device: torch.device) -> dict:
@@ -89,6 +100,7 @@ def extract_for_hidden_size(hidden_size: int, seed: int, splits: dict, device: t
         "hidden_size": hidden_size,
         "seed": seed,
         "checkpoint": str(checkpoint_path.relative_to(PROJECT_DIR)),
+        "checkpoint_sha256": sha256_file(checkpoint_path),
         "checkpoint_best_epoch": int(ae_summary["best_epoch"]),
         "checkpoint_best_val_mse": float(ae_summary["best_val_mse"]),
         "autoencoder_converged": bool(ae_summary["stopped_early"]),
@@ -108,6 +120,12 @@ def parse_args() -> argparse.Namespace:
     """Legge da riga di comando il seed degli autoencoder da cui estrarre le feature."""
     parser = argparse.ArgumentParser(description="Estrae le feature latenti dei cinque autoencoder.")
     parser.add_argument("--seed", type=int, default=SEED, help="Seed degli autoencoder (default: 42).")
+    parser.add_argument(
+        "--device",
+        choices=("auto", "cpu"),
+        default="auto",
+        help="Dispositivo per estrarre le feature; CPU aiuta a renderle confrontabili fra PC.",
+    )
     return parser.parse_args()
 
 
@@ -117,7 +135,8 @@ def main() -> None:
     program_start = time.perf_counter()
 
     args = parse_args()
-    device = get_device()
+    # La CPU è opzionale per mantenere l'estrazione uniforme tra computer diversi.
+    device = torch.device("cpu") if args.device == "cpu" else get_device()
     print(f"Device: {device} | seed autoencoder: {args.seed}")
 
     # Carica una sola volta immagini e label di tutti gli split.

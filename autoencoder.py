@@ -16,6 +16,7 @@ PROJECT_DIR = Path(__file__).resolve().parent
 CHECKPOINT_DIR = PROJECT_DIR / "checkpoints"
 RESULTS_DIR = PROJECT_DIR / "results"
 HIDDEN_SIZES = (25, 50, 75, 100, 125)
+AUTOENCODER_SEEDS = (42, 1, 2)
 DEFAULT_HIDDEN_SIZE = HIDDEN_SIZES[0]
 
 # Early stopping ("convergenza pratica"): un'epoca conta come miglioramento solo se abbassa
@@ -177,6 +178,8 @@ def train_autoencoder(
 
     # Il miglior modello si tiene in memoria e si salva su disco una volta sola, alla fine.
     best_val_loss = initial_record["val_mse"]
+    # La soglia relativa governa la patience, separatamente dal checkpoint migliore.
+    best_significant_val_loss = initial_record["val_mse"]
     best_epoch = 0
     best_state = copy.deepcopy(model.state_dict())
     epochs_without_improvement = 0
@@ -218,12 +221,16 @@ def train_autoencoder(
             epoch_records.append(record)
             writer.writerow(record)
 
-            # Miglioramento solo se la validation MSE scende almeno dello 0,1% rispetto al migliore.
-            if val_mse < best_val_loss * (1.0 - min_rel_delta):
+            # Il checkpoint segue sempre la validation MSE assoluta più bassa.
+            if val_mse < best_val_loss:
                 best_val_loss = val_mse
                 best_epoch = epoch
                 # Copia dei pesi: state_dict() da solo è un riferimento e cambierebbe insieme al modello.
                 best_state = copy.deepcopy(model.state_dict())
+
+            # La patience si azzera solo con un miglioramento relativo significativo.
+            if val_mse < best_significant_val_loss * (1.0 - min_rel_delta):
+                best_significant_val_loss = val_mse
                 epochs_without_improvement = 0
             else:
                 epochs_without_improvement += 1
@@ -326,6 +333,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Allena in sequenza tutti e cinque gli autoencoder.",
     )
+    selection.add_argument(
+        "--all-seeds",
+        action="store_true",
+        help="Allena i cinque autoencoder con i seed 42, 1 e 2.",
+    )
     parser.add_argument("--max-epochs", type=int, default=DEFAULT_MAX_EPOCHS)
     parser.add_argument("--patience", type=int, default=DEFAULT_PATIENCE)
     parser.add_argument("--min-rel-delta", type=float, default=DEFAULT_MIN_REL_DELTA,
@@ -345,11 +357,15 @@ if __name__ == "__main__":
     if args.check_model:
         check_model()
     else:
-        # Con --all si usano gli stessi criteri e parametri per ciascuna dimensione latente.
-        hidden_sizes = HIDDEN_SIZES if args.all else (args.hidden_size,)
+        # Sceglie le combinazioni dimensione/seed richieste, con identico protocollo.
+        if args.all_seeds:
+            configurations = [(m, seed) for seed in AUTOENCODER_SEEDS for m in HIDDEN_SIZES]
+        else:
+            hidden_sizes = HIDDEN_SIZES if args.all else (args.hidden_size,)
+            configurations = [(m, args.seed) for m in hidden_sizes]
         timings = []
-        for hidden_size in hidden_sizes:
-            print(f"\n=== Autoencoder con hidden size {hidden_size} ===")
+        for hidden_size, seed in configurations:
+            print(f"\n=== Autoencoder m={hidden_size}, seed={seed} ===")
             # Tempo totale del modello: caricamento dati, training, test e salvataggi.
             model_start = time.perf_counter()
             summary = train_autoencoder(
@@ -357,17 +373,17 @@ if __name__ == "__main__":
                 patience=args.patience,
                 min_rel_delta=args.min_rel_delta,
                 hidden_size=hidden_size,
-                seed=args.seed,
+                seed=seed,
                 log_every=args.log_every,
             )
-            timings.append((hidden_size, summary["epochs_completed"],
+            timings.append((hidden_size, seed, summary["epochs_completed"],
                             summary["training_seconds"], time.perf_counter() - model_start))
 
         # Riepilogo dei tempi: solo ciclo di training e totale per modello.
         print("\n=== Tempi ===")
-        print(f"{'m':>4} {'epoche':>7} {'training':>14} {'totale modello':>16}")
-        for hidden_size, epochs, train_seconds, model_seconds in timings:
-            print(f"{hidden_size:>4} {epochs:>7} {format_duration(train_seconds):>14} "
+        print(f"{'m':>4} {'seed':>5} {'epoche':>7} {'training':>14} {'totale modello':>16}")
+        for hidden_size, seed, epochs, train_seconds, model_seconds in timings:
+            print(f"{hidden_size:>4} {seed:>5} {epochs:>7} {format_duration(train_seconds):>14} "
                   f"{format_duration(model_seconds):>16}")
 
     # Tempo effettivo di tutto il programma.

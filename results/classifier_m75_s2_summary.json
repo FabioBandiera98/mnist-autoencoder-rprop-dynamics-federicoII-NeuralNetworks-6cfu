@@ -1,0 +1,35 @@
+{
+  "representation": "m75",
+  "input_size": 75,
+  "hidden_size": 64,
+  "num_classes": 10,
+  "seed": 2,
+  "optimizer": "RProp",
+  "optimizer_lr": 0.01,
+  "rprop_etas": [
+    0.5,
+    1.2
+  ],
+  "rprop_step_sizes": [
+    1e-06,
+    50.0
+  ],
+  "batch_mode": "full_training_set",
+  "loss": "CrossEntropyLoss",
+  "max_epochs": 10000,
+  "epochs_completed": 510,
+  "best_epoch": 410,
+  "best_val_loss": 0.19860930740833282,
+  "best_train_loss": 0.0933789536356926,
+  "best_val_accuracy": 0.9462000131607056,
+  "test_loss": 0.1859448105096817,
+  "test_accuracy": 0.9516000151634216,
+  "patience": 100,
+  "min_rel_delta": 0.001,
+  "converged": true,
+  "stop_reason": "validation_patience",
+  "training_seconds": 3.6801044000312686,
+  "device": "cpu",
+  "checkpoint": "checkpoints\\classifier_m75_s2_best.pt",
+  "history": "results\\classifier_m75_s2_history.csv"
+}
