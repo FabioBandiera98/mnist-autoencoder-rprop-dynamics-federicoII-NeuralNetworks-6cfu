@@ -1,0 +1,196 @@
+{
+  "run_id": "Yegor-3080",
+  "status": "complete",
+  "created_utc": "2026-11-06T15:25:51.805759+00:00",
+  "protocol": {
+    "representations": [
+      "raw",
+      "m25",
+      "m50",
+      "m75",
+      "m100",
+      "m125"
+    ],
+    "classifier_seeds": [
+      1,
+      2,
+      3,
+      4,
+      5
+    ],
+    "autoencoder_feature_seed": 42,
+    "hidden_size": 64,
+    "classes": 10,
+    "optimizer": "RProp",
+    "batch_mode": "full_training_set",
+    "loss": "CrossEntropyLoss",
+    "max_epochs": 10000,
+    "patience": 100,
+    "min_rel_delta": 0.001,
+    "log_every": 1
+  },
+  "environment": {
+    "host": "DESKTOP-PRS1RQM",
+    "platform": "Windows-11-10.0.26300-SP0",
+    "python": "3.14.0",
+    "torch": "2.11.0+cu128",
+    "cuda_available": true,
+    "cuda_version": "12.8",
+    "device": "cuda",
+    "gpu_name": "NVIDIA GeForce RTX 3080"
+  },
+  "inputs": {
+    "device": "cuda",
+    "dataset_sha256": "e9c694c41032604ebef0f261fc1fbea1dcb0b33095d8b0fa84b00cdf4c016922",
+    "feature_sha256": {
+      "25": "117faa20708a48cb14000e4dd91a3ecd70935004d9d838188c41f676832e7367",
+      "50": "934f96ecc021e02ea72f3a8cfb3a0ec8e5c62b494c57e946d6350ce7aee2d7ae",
+      "75": "ddb766bb3109f9959c6912c888156cdf5896a8d536ea523151b706f65df90dc9",
+      "100": "ab01da1822736fcbf11f8d9b3be8894f513e3e58ae0426962dae75b676e89111",
+      "125": "bb1104f0a82db0f5b5e1d66c4d6a78bd6da89a33ae979592a1abb77f685d7ae0"
+    },
+    "input_sha256": "cf05fcb2a8af54b5dadb96493cdf0cc299da272edf75c881f38edb9cbdfb346e",
+    "feature_shapes": {
+      "m25_train": [
+        20000,
+        25
+      ],
+      "m25_val": [
+        5000,
+        25
+      ],
+      "m25_test": [
+        5000,
+        25
+      ],
+      "m50_train": [
+        20000,
+        50
+      ],
+      "m50_val": [
+        5000,
+        50
+      ],
+      "m50_test": [
+        5000,
+        50
+      ],
+      "m75_train": [
+        20000,
+        75
+      ],
+      "m75_val": [
+        5000,
+        75
+      ],
+      "m75_test": [
+        5000,
+        75
+      ],
+      "m100_train": [
+        20000,
+        100
+      ],
+      "m100_val": [
+        5000,
+        100
+      ],
+      "m100_test": [
+        5000,
+        100
+      ],
+      "m125_train": [
+        20000,
+        125
+      ],
+      "m125_val": [
+        5000,
+        125
+      ],
+      "m125_test": [
+        5000,
+        125
+      ]
+    },
+    "autoencoders": {
+      "25": {
+        "seed": 42,
+        "checkpoint": "checkpoints\\autoencoder_m25_best.pt",
+        "checkpoint_sha256": "eba7c0930dde39198334dcbe30c123961f227be121161e8ef6e0fb6d37112486",
+        "best_epoch": 2740,
+        "best_val_mse": 0.018818020820617676,
+        "converged": true,
+        "stop_reason": "validation_patience"
+      },
+      "50": {
+        "seed": 42,
+        "checkpoint": "checkpoints\\autoencoder_m50_best.pt",
+        "checkpoint_sha256": "ead454c909c2adebe97ecc9f7842cd4d3e69629c320e3c8cb4a3baf93185727e",
+        "best_epoch": 3676,
+        "best_val_mse": 0.006293115206062794,
+        "converged": true,
+        "stop_reason": "validation_patience"
+      },
+      "75": {
+        "seed": 42,
+        "checkpoint": "checkpoints\\autoencoder_m75_best.pt",
+        "checkpoint_sha256": "71764cff7dc79c3a2fffe89bc00cd85c3c46d1533cdd999b2cf59ec747953ec6",
+        "best_epoch": 5286,
+        "best_val_mse": 0.0035770072136074305,
+        "converged": true,
+        "stop_reason": "validation_patience"
+      },
+      "100": {
+        "seed": 42,
+        "checkpoint": "checkpoints\\autoencoder_m100_best.pt",
+        "checkpoint_sha256": "762fe0ecf12a389c2887af620ed1273a9f9d7629ee8780f8ec94a989ed08c136",
+        "best_epoch": 4950,
+        "best_val_mse": 0.0025699783582240343,
+        "converged": true,
+        "stop_reason": "validation_patience"
+      },
+      "125": {
+        "seed": 42,
+        "checkpoint": "checkpoints\\autoencoder_m125_best.pt",
+        "checkpoint_sha256": "b298a1de756db911f6fada88dafbb6cb17ca67d1b2dbb7d6f175d161064309dd",
+        "best_epoch": 5044,
+        "best_val_mse": 0.0019968405831605196,
+        "converged": true,
+        "stop_reason": "validation_patience"
+      }
+    },
+    "all_autoencoders_converged": true
+  },
+  "completed_runs": [
+    "raw_s1",
+    "raw_s2",
+    "raw_s3",
+    "raw_s4",
+    "raw_s5",
+    "m25_s1",
+    "m25_s2",
+    "m25_s3",
+    "m25_s4",
+    "m25_s5",
+    "m50_s1",
+    "m50_s2",
+    "m50_s3",
+    "m50_s4",
+    "m50_s5",
+    "m75_s1",
+    "m75_s2",
+    "m75_s3",
+    "m75_s4",
+    "m75_s5",
+    "m100_s1",
+    "m100_s2",
+    "m100_s3",
+    "m100_s4",
+    "m100_s5",
+    "m125_s1",
+    "m125_s2",
+    "m125_s3",
+    "m125_s4",
+    "m125_s5"
+  ]
+}

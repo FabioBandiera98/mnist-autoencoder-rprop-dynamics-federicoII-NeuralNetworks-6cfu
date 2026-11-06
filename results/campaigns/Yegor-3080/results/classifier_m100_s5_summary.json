@@ -1,0 +1,35 @@
+{
+  "representation": "m100",
+  "input_size": 100,
+  "hidden_size": 64,
+  "num_classes": 10,
+  "seed": 5,
+  "optimizer": "RProp",
+  "optimizer_lr": 0.01,
+  "rprop_etas": [
+    0.5,
+    1.2
+  ],
+  "rprop_step_sizes": [
+    1e-06,
+    50.0
+  ],
+  "batch_mode": "full_training_set",
+  "loss": "CrossEntropyLoss",
+  "max_epochs": 10000,
+  "epochs_completed": 490,
+  "best_epoch": 390,
+  "best_val_loss": 0.21029146015644073,
+  "best_train_loss": 0.08027613162994385,
+  "best_val_accuracy": 0.9451999664306641,
+  "test_loss": 0.20411571860313416,
+  "test_accuracy": 0.9491999745368958,
+  "patience": 100,
+  "min_rel_delta": 0.001,
+  "converged": true,
+  "stop_reason": "validation_patience",
+  "training_seconds": 1.84346220000225,
+  "device": "cuda",
+  "checkpoint": "results\\campaigns\\Yegor-3080\\checkpoints\\classifier_m100_s5_best.pt",
+  "history": "results\\campaigns\\Yegor-3080\\results\\classifier_m100_s5_history.csv"
+}

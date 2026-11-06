@@ -1,0 +1,8 @@
+{
+  "run_id": "Yegor-3080",
+  "status": "complete",
+  "run_count": 30,
+  "converged_count": 30,
+  "not_converged": [],
+  "comparison_csv": "results\\campaigns\\Yegor-3080\\results\\classifier_comparison.csv"
+}
